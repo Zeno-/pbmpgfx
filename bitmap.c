@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <math.h>
 
+#define SWAP(type,x,y) do { type temp = (x); (x) = (y); (y) = temp; } while (0)
+
+
 /***************************************************************************/
 
 struct bitmap {
@@ -184,21 +187,44 @@ void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
 		draw_vline(bmap, c, p1, p2);
 	else if (p1->y == p2->y)
 		draw_hline(bmap, c, p1, p2);
-	else {
-		unsigned x;
-		double y, dy;
-		struct point2d p;
+	else {		/* Use Bresenham's LDA */
+		struct point2d a, b;
+		int dx, dy, steep, ystep, erracc;
+		a.x = p1->x;
+		a.y = p1->y;
+		b.x = p2->x;
+		b.y = p2->y;
 
-		if (p1->x > p2->x)
-			swap_point_ptrs(&p1, &p2);
+		/* steep... 0 shallow-slope, 1 steep */
+		steep = abs(b.y - a.y) > abs(b.x - a.x) ? 1 : 0;
+		if (steep) { /* "mirror" */
+			SWAP(int, a.x, a.y);
+			SWAP(int, b.x, b.y);
+		}
 
-		dy = ((double)p1->y - p2->y) / ((double)p1->x - p2->x);
+		if (a.x > b.x)		/* Work along the "x"-axis */
+			SWAP(struct point2d, a, b);
 
-		y = p1->y;
-		for (x = p1->x; x <= p2->x; x++) {
-			p.x = x; p.y = round(y);
-			draw_point(bmap, c, &p);
-			y += dy;
+		dx = b.x - a.x;
+		dy = abs(b.y - a.y);
+		ystep = a.y < b.y ? -1 : 1;
+
+		erracc = 2 * dy - dx;
+
+		while (a.x <= b.x) {
+			if (steep) {
+				struct point2d mirrored = { a.y, a.x };
+				draw_point(bmap, c, &mirrored);
+			} else {
+				draw_point(bmap, c, &a);
+			}
+			if (erracc > 0) {
+				a.y += ystep;
+				erracc += 2 * dy - 2 * dx;
+			} else {
+				erracc += 2 * dy;
+			}
+			a.x++;
 		}
 	}
 }
