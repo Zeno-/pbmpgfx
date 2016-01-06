@@ -15,7 +15,7 @@ struct bitmap {
 };
 
 enum cmd_id {
-	CMD_POINT, CMD_LINE, CMD_RECT
+	CMD_POINT, CMD_LINE, CMD_RECT, CMD_CIRCLE
 };
 
 struct cmd_def {
@@ -38,9 +38,12 @@ int parse_file(FILE *fpi, FILE *fpo);
 int parse_cmd_point(const char *s, struct bitmap *bmap);
 int parse_cmd_line(const char *s, struct bitmap *bmap);
 int parse_cmd_rect(const char *s, struct bitmap *bmap);
+int parse_cmd_circle(const char *s, struct bitmap *bmap);
 
 void draw_point(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p);
+void draw_point_xy(const struct bitmap *bmap, const struct rgb255 *c,
+		unsigned x, unsigned y);
 void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p1, const struct point2d *p2);
 void draw_vline(const struct bitmap *bmap, const struct rgb255 *c,
@@ -49,6 +52,8 @@ void draw_hline(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p1, const struct point2d *p2);
 void draw_rect(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p1, const struct point2d *p2);
+void draw_circle(const struct bitmap *bmap, const struct rgb255 *c,
+				 const struct point2d *center, unsigned radius);
 
 void bitmap_to_pbmp(FILE *fpo, const struct bitmap *bmap);
 
@@ -69,9 +74,10 @@ int main(void)
 int parse_file(FILE *fpi, FILE *fpo)
 {
 	static const struct cmd_def cmdlist[] = {
-		{ "point", CMD_POINT, parse_cmd_point },
-		{ "line", CMD_LINE, parse_cmd_line },
-		{ "rect", CMD_RECT, parse_cmd_rect }
+		{ "point",  CMD_POINT,  parse_cmd_point   },
+		{ "line",   CMD_LINE,   parse_cmd_line    },
+		{ "rect",   CMD_RECT,   parse_cmd_rect    },
+		{ "circle", CMD_CIRCLE, parse_cmd_circle  }
 	};
 	const size_t n_cmds = sizeof cmdlist / sizeof *cmdlist;
 
@@ -163,6 +169,20 @@ int parse_cmd_rect(const char *s, struct bitmap *bmap)
 	return 1;
 }
 
+int parse_cmd_circle(const char *s, struct bitmap *bmap)
+{
+	struct rgb255 c;
+	struct point2d point;
+	unsigned r;
+
+	if (sscanf(s, "%u %u %u %u %u %u", &c.r, &c.g, &c.b,
+		                               &point.y, &point.x, &r) == 6) {
+		draw_circle(bmap, &c, &point, r);
+		return 0;
+	}
+	return 1;
+}
+
 
 /***************************************************************************
  * Drawing
@@ -178,6 +198,13 @@ void draw_point(const struct bitmap *bmap, const struct rgb255 *c,
 	bmap->data[p->x + p->y * bmap->w] = ( (uint32_t)(c->r & 0xff)) << 16 |
 	                                      ((uint32_t)(c->g & 0xff)) << 8 |
 	                                      ((uint32_t)(c->b & 0xff) );
+}
+
+void draw_point_xy(const struct bitmap *bmap, const struct rgb255 *c,
+		unsigned x, unsigned y)
+{
+	struct point2d point = {x, y};
+	draw_point(bmap, c, &point);
 }
 
 void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
@@ -212,12 +239,11 @@ void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
 		erracc = 2 * dy - dx;
 
 		while (a.x <= b.x) {
-			if (steep) {
-				struct point2d mirrored = { a.y, a.x };
-				draw_point(bmap, c, &mirrored);
-			} else {
+			if (steep)
+				draw_point_xy(bmap, c, a.y, a.x);
+			else
 				draw_point(bmap, c, &a);
-			}
+
 			if (erracc > 0) {
 				a.y += ystep;
 				erracc += 2 * dy - 2 * dx;
@@ -274,6 +300,48 @@ void draw_rect(const struct bitmap *bmap, const struct rgb255 *c,
 		b.x = p2->x; b.y = y;
 		draw_line(bmap, c, &a, &b);
 	}
+}
+
+void draw_circle(const struct bitmap *bmap, const struct rgb255 *c,
+				 const struct point2d *center, unsigned radius)
+{
+	int x, y;
+	int f;
+	int ddFx;
+	int ddFy;
+
+	x = 0;
+	y = radius;
+
+	ddFx = 1;
+	ddFy = -2 * radius;
+	f = 1 - radius;
+
+	draw_point_xy(bmap, c, center->x, center->y + radius);
+	draw_point_xy(bmap, c, center->x, center->y - radius);
+	draw_point_xy(bmap, c, center->x + radius, center->y);
+	draw_point_xy(bmap, c, center->x - radius, center->y);
+
+	while (x < y) {
+		if (f >= 0) {
+			y--;
+			ddFy += 2;
+			f += ddFy;
+		}
+		x++;
+		ddFx += 2;
+		f += ddFx;
+
+		draw_point_xy(bmap, c, center->x + x, center->y + y);
+		draw_point_xy(bmap, c, center->x - x, center->y + y);
+		draw_point_xy(bmap, c, center->x + x, center->y - y);
+		draw_point_xy(bmap, c, center->x - x, center->y - y);
+
+		draw_point_xy(bmap, c, center->x + y, center->y + x);
+		draw_point_xy(bmap, c, center->x - y, center->y + x);
+		draw_point_xy(bmap, c, center->x + y, center->y - x);
+		draw_point_xy(bmap, c, center->x - y, center->y - x);
+    }
 }
 
 
