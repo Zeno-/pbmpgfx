@@ -11,7 +11,7 @@
 /***************************************************************************/
 
 struct bitmap {
-	unsigned w, h;
+	int w, h;
 	uint32_t *data;
 };
 
@@ -26,11 +26,11 @@ struct cmd_def {
 };
 
 struct rgb255 {
-	unsigned r, g, b;
+	int r, g, b;
 };
 
 struct point2d {
-	unsigned x, y;
+	int x, y;
 };
 
 struct point2d_stack {
@@ -53,13 +53,13 @@ uint32_t fromRGB(const struct rgb255 *c);
 void toRGB(uint32_t c, struct rgb255 *dest);
 
 void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
-		unsigned x, unsigned y);
-uint32_t bitmap_getpixel(const struct bitmap *bmap, unsigned x, unsigned y);
+		int x, int y);
+uint32_t bitmap_getpixel(const struct bitmap *bmap, int x, int y);
 
 void draw_point(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p);
 void draw_point_xy(const struct bitmap *bmap, const struct rgb255 *c,
-		unsigned x, unsigned y);
+		int x, int y);
 
 void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p1, const struct point2d *p2);
@@ -70,10 +70,10 @@ void draw_hline(const struct bitmap *bmap, const struct rgb255 *c,
 void draw_rect(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p1, const struct point2d *p2);
 void draw_circle(const struct bitmap *bmap, const struct rgb255 *c,
-		const struct point2d *center, unsigned radius);
+		const struct point2d *center, int radius);
 void draw_ellipse(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *center,
-		unsigned radius1, unsigned radius2);
+		int radius1, int radius2);
 void draw_fill(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p);
 void draw_fill_scanline(const struct bitmap *bmap, uint32_t fill_colour,
@@ -128,7 +128,9 @@ int parse_file(FILE *fpi, FILE *fpo)
 			line++;
 			if (*s == '\0' || *s == '#')
 				continue;	// skip empty lines and comments
-			if (sscanf(s, "%u %u", &bmap.w, &bmap.h) == 2) {
+			if (sscanf(s, "%d %d", &bmap.w, &bmap.h) == 2) {
+				if (bmap.w < 0 || bmap.h < 0)
+					return 1;
 				if (!(bmap.data = calloc(bmap.w * bmap.h, sizeof *bmap.data)))
 					return 1;
 				break;
@@ -201,7 +203,7 @@ int parse_cmd_rect(const char *s, struct bitmap *bmap)
 {
 	struct rgb255 c;
 	struct point2d p1, p2;
-	unsigned x, y, w, h;
+	int x, y, w, h;
 
 	if (sscanf(s, "%u %u %u %u %u %u %u", &c.r, &c.g, &c.b,
 		                                  &y, &x, &h, &w) == 7) {
@@ -221,7 +223,7 @@ int parse_cmd_circle(const char *s, struct bitmap *bmap)
 {
 	struct rgb255 c;
 	struct point2d point;
-	unsigned r;
+	int r;
 
 	if (sscanf(s, "%u %u %u %u %u %u", &c.r, &c.g, &c.b,
 		                               &point.y, &point.x, &r) == 6) {
@@ -235,10 +237,10 @@ int parse_cmd_ellipse(const char *s, struct bitmap *bmap)
 {
 	struct rgb255 c;
 	struct point2d point;
-	unsigned r1, r2;
+	int r1, r2;
 
 	if (sscanf(s, "%u %u %u %u %u %u %u", &c.r, &c.g, &c.b,
-		                               &point.y, &point.x, &r1, &r2) == 7) {
+		                               &point.y, &point.x, &r2, &r1) == 7) {
 		draw_ellipse(bmap, &c, &point, r1, r2);
 		return 0;
 	}
@@ -279,12 +281,12 @@ void toRGB(uint32_t c, struct rgb255 *dest)
 }
 
 void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
-		unsigned x, unsigned y)
+		int x, int y)
 {
 	bmap->data[x + y * bmap->w] = c;
 }
 
-uint32_t bitmap_getpixel(const struct bitmap *bmap, unsigned x, unsigned y)
+uint32_t bitmap_getpixel(const struct bitmap *bmap, int x, int y)
 {
 	return bmap->data[x + y * bmap->w];
 }
@@ -297,16 +299,16 @@ uint32_t bitmap_getpixel(const struct bitmap *bmap, unsigned x, unsigned y)
 void draw_point(const struct bitmap *bmap, const struct rgb255 *c,
 				const struct point2d *p)
 {
-	if (p->x >= bmap->w || p->y >= bmap->h)
+	if (p->x < 0 || p->x >= bmap->w || p->y < 0 || p->y >= bmap->h)
 		return;
 
 	bitmap_setpixel(bmap, fromRGB(c), p->x, p->y);
 }
 
 void draw_point_xy(const struct bitmap *bmap, const struct rgb255 *c,
-		unsigned x, unsigned y)
+		int x, int y)
 {
-	if (x >= bmap->w || y >= bmap->h)
+	if (x < 0 || x >= bmap->w || y < 0 || y >= bmap->h)
 		return;
 
 	bitmap_setpixel(bmap, fromRGB(c), x, y);
@@ -319,7 +321,9 @@ void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
 		draw_vline(bmap, c, p1, p2);
 	else if (p1->y == p2->y)
 		draw_hline(bmap, c, p1, p2);
-	else {		/* Use Bresenham's LDA */
+	else {
+		/* Use Bresenham's LDA */
+
 		struct point2d a, b;
 		int dx, dy, steep, ystep, erracc;
 		a.x = p1->x;
@@ -339,7 +343,7 @@ void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
 
 		dx = b.x - a.x;
 		dy = abs(b.y - a.y);
-		ystep = a.y < b.y ? -1 : 1;
+		ystep = b.y < a.y ? -1 : 1;
 
 		erracc = 2 * dy - dx;
 
@@ -363,7 +367,7 @@ void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
 void draw_vline(const struct bitmap *bmap, const struct rgb255 *c,
 				const struct point2d *p1, const struct point2d *p2)
 {
-	unsigned i;
+	int i;
 	struct point2d p;
 
 	p.x = p1->x;
@@ -379,7 +383,7 @@ void draw_vline(const struct bitmap *bmap, const struct rgb255 *c,
 void draw_hline(const struct bitmap *bmap, const struct rgb255 *c,
 				const struct point2d *p1, const struct point2d *p2)
 {
-	unsigned i;
+	int i;
 	struct point2d p;
 
 	p.y = p1->y;
@@ -395,7 +399,7 @@ void draw_hline(const struct bitmap *bmap, const struct rgb255 *c,
 void draw_rect(const struct bitmap *bmap, const struct rgb255 *c,
 			   const struct point2d *p1, const struct point2d *p2)
 {
-	unsigned y;
+	int y;
 	struct point2d a, b;
 
 	if (p1->y > p2->y)
@@ -409,7 +413,7 @@ void draw_rect(const struct bitmap *bmap, const struct rgb255 *c,
 }
 
 void draw_circle(const struct bitmap *bmap, const struct rgb255 *c,
-				 const struct point2d *center, unsigned radius)
+				 const struct point2d *center, int radius)
 {
 	int x, y;
 	int f;
@@ -452,14 +456,14 @@ void draw_circle(const struct bitmap *bmap, const struct rgb255 *c,
 
 void draw_ellipse(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *center,
-		unsigned radius1, unsigned radius2)
+		int radius1, int radius2)
 {
 	/* Adapted from Alois Zingl (2012) "A Rasterizing Algorithm for
 	 * Drawing Curves"
 	 */
-	long long x, y, e2, dx, dy, err;
+	long x, y, e2, dx, dy, err;
 
-	x = 0 - (long long)radius1;
+	x = -radius1;
 	y = 0;
 	e2 = radius2;
 	dx = (2 * x + 1) * e2 * e2;
@@ -475,11 +479,11 @@ void draw_ellipse(const struct bitmap *bmap, const struct rgb255 *c,
 		e2 = 2 * err;
 		if (e2 >= dx) {
 			x++;
-			err += dx += 2 * (long long)radius2 * radius2;
+			err += dx += 2 * (long)radius2 * radius2;
 		}
 		if (e2 <= dy) {
 			y++;
-			err += dy += 2 * (long long)radius1 * radius1;
+			err += dy += 2 * (long)radius1 * radius1;
 		}
 	} while (x <= 0);
 
@@ -496,7 +500,7 @@ void draw_fill(const struct bitmap *bmap, const struct rgb255 *c,
 	uint32_t match_colour;
 	uint32_t fill_colour;
 
-	if (p->x >= bmap->w || p->y >= bmap->h)
+	if (p->x < 0 || p->x >= bmap->w || p->y < 0 || p->y >= bmap->h)
 		return;
 
 	match_colour = bmap->data[p->x + p->y * bmap->w];
@@ -640,7 +644,7 @@ int stack_pop(struct point2d_stack *stack, struct point2d *p)
 
 void bitmap_to_pbmp(FILE *fpo, const struct bitmap *bmap)
 {
-	unsigned row, col;
+	int row, col;
 
 	fprintf(fpo, "P3 %u %u\n255\n", bmap->w, bmap->h); /* PBMP header */
 
