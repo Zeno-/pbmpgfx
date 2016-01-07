@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <ctype.h>
 #include <math.h>
 
 #define SWAP(type,x,y) do { type temp = (x); (x) = (y); (y) = temp; } while (0)
@@ -87,6 +88,8 @@ void bitmap_to_pbmp(FILE *fpo, const struct bitmap *bmap);
 
 void swap_point_ptrs(const struct point2d **p1, const struct point2d **p2);
 
+const char *skip_leading_spaces(const char *s);
+
 /***************************************************************************/
 
 int main(void)
@@ -116,19 +119,31 @@ int parse_file(FILE *fpi, FILE *fpo)
 	char cmd_s[16];
 	struct bitmap bmap;
 	int err = 0;
+	size_t line = 0;
 
 	bmap.data = NULL;
-	if (fgets(buff, sizeof buff, fpi)) {
-		if (sscanf(buff, "%u %u", &bmap.w, &bmap.h) == 2) {
-			if (!(bmap.data = calloc(bmap.w * bmap.h, sizeof *bmap.data)))
-				return 1;
+	do {
+		if (fgets(buff, sizeof buff, fpi)) {
+			const char *s = skip_leading_spaces(buff);
+			line++;
+			if (*s == '\0' || *s == '#')
+				continue;	// skip empty lines and comments
+			if (sscanf(s, "%u %u", &bmap.w, &bmap.h) == 2) {
+				if (!(bmap.data = calloc(bmap.w * bmap.h, sizeof *bmap.data)))
+					return 1;
+				break;
+			}
+		} else {
+			return 1;
 		}
-	} else {
-		return 1;
-	}
+	} while(1);
 
 	while (err == 0 && fgets(buff, sizeof buff, fpi)) {
-		if ((sscanf(buff, "%s", cmd_s) == 1)) {
+		const char *s = skip_leading_spaces(buff);
+		line++;
+		if (*s == '\0' || *s == '#')
+			continue;	// skip empty lines and comments
+		if ((sscanf(s, "%s", cmd_s) == 1)) {
 			size_t i;
 			for (i = 0; i < n_cmds; i++ ) {
 				if (strcmp(cmd_s, cmdlist[i].str) == 0) {
@@ -143,6 +158,8 @@ int parse_file(FILE *fpi, FILE *fpo)
 		} else {
 			err = 1;
 		}
+		if (err)
+			fprintf(stderr, "Syntax error, line %lu: \"%s\"\n", line, s);
 	}
 
 	if (err == 0)
@@ -643,4 +660,11 @@ void swap_point_ptrs(const struct point2d **p1, const struct point2d **p2)
 	const struct point2d *temp = *p1;
 	*p1 = *p2;
 	*p2 = temp;
+}
+
+const char *skip_leading_spaces(const char *s)
+{
+	while (isspace(*s))
+		s++;
+	return s;
 }
