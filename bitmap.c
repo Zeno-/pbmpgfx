@@ -104,6 +104,7 @@ int parse_file(FILE *fpi, FILE *fpo)
 	static const struct cmd_def cmdlist[] = {
 		{ "point",   CMD_POINT,  parse_cmd_point   },
 		{ "line",    CMD_LINE,   parse_cmd_line    },
+		{ "bline",   CMD_LINE,   parse_cmd_line    },
 		{ "rect",    CMD_RECT,   parse_cmd_rect    },
 		{ "circle",  CMD_CIRCLE, parse_cmd_circle  },
 		{ "ellipse", CMD_CIRCLE, parse_cmd_ellipse },
