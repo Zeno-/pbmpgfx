@@ -50,11 +50,13 @@ int parse_cmd_fill(const char *s, struct bitmap *bmap);
 uint32_t fromRGB(const struct rgb255 *c);
 void toRGB(uint32_t c, struct rgb255 *dest);
 
+void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
+		unsigned x, unsigned y);
+uint32_t bitmap_getpixel(const struct bitmap *bmap, unsigned x, unsigned y);
+
 void draw_point(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p);
 void draw_point_xy(const struct bitmap *bmap, const struct rgb255 *c,
-		unsigned x, unsigned y);
-void draw_pixel(const struct bitmap *bmap, uint32_t c,
 		unsigned x, unsigned y);
 
 void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
@@ -219,8 +221,9 @@ int parse_cmd_fill(const char *s, struct bitmap *bmap)
 	return 1;
 }
 
+
 /***************************************************************************
- * Drawing
+ * "Bitmap"
  ***************************************************************************/
 
 uint32_t fromRGB(const struct rgb255 *c)
@@ -238,6 +241,21 @@ void toRGB(uint32_t c, struct rgb255 *dest)
 	dest->b = c & 0xff;
 }
 
+void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
+		unsigned x, unsigned y)
+{
+	bmap->data[x + y * bmap->w] = c;
+}
+
+uint32_t bitmap_getpixel(const struct bitmap *bmap, unsigned x, unsigned y)
+{
+	return bmap->data[x + y * bmap->w];
+}
+
+
+/***************************************************************************
+ * Drawing
+ ***************************************************************************/
 
 void draw_point(const struct bitmap *bmap, const struct rgb255 *c,
 				const struct point2d *p)
@@ -245,20 +263,16 @@ void draw_point(const struct bitmap *bmap, const struct rgb255 *c,
 	if (p->x >= bmap->w || p->y >= bmap->h)
 		return;
 
-	bmap->data[p->x + p->y * bmap->w] = fromRGB(c);
+	bitmap_setpixel(bmap, fromRGB(c), p->x, p->y);
 }
 
 void draw_point_xy(const struct bitmap *bmap, const struct rgb255 *c,
 		unsigned x, unsigned y)
 {
-	struct point2d point = {x, y};
-	draw_point(bmap, c, &point);
-}
+	if (x >= bmap->w || y >= bmap->h)
+		return;
 
-void draw_pixel(const struct bitmap *bmap, uint32_t c,
-		unsigned x, unsigned y)
-{
-	bmap->data[x + y * bmap->w] = c;
+	bitmap_setpixel(bmap, fromRGB(c), x, y);
 }
 
 void draw_line(const struct bitmap *bmap, const struct rgb255 *c,
@@ -442,14 +456,17 @@ void draw_fill_scanline(const struct bitmap *bmap, uint32_t fill_colour,
 		i++;
 		y = point.y;
 
-		while (y >= 0 && bmap->data[point.x + y * bmap->w] == match_colour)
+		while (y >= 0 && bitmap_getpixel(bmap, point.x, y) == match_colour)
 			y--;
 		y++;
 
-		while (y < bmap->h && bmap->data[point.x + y * bmap->w] == match_colour) {
-			draw_pixel(bmap, fill_colour, point.x, y);
+		while (y < bmap->h && bitmap_getpixel(bmap, point.x, y)
+						== match_colour) {
+			bitmap_setpixel(bmap, fill_colour, point.x, y);
 
-			if (!left && point.x > 0 && bmap->data[point.x - 1 + y * bmap->w] == match_colour) {
+			if (!left && point.x > 0
+						&& bitmap_getpixel(bmap, point.x - 1, y)
+						== match_colour) {
 				point_temp.x = point.x - 1;
 				point_temp.y = y;
 				if (!stack_push(stack, &point_temp)) {
@@ -457,12 +474,15 @@ void draw_fill_scanline(const struct bitmap *bmap, uint32_t fill_colour,
 					goto abort;
 				}
 				left = 1;
-			}
-			else if (left && point.x > 0 && bmap->data[point.x - 1 + y * bmap->w] != match_colour) {
+			} else if (left && point.x > 0
+							&& bitmap_getpixel(bmap, point.x - 1, y)
+							!= match_colour) {
 				left = 0;
 			}
 
-			if (!right && point.x < bmap->w - 1 && bmap->data[point.x + 1 + y * bmap->w] == match_colour) {
+			if (!right && point.x < bmap->w - 1
+						&& bitmap_getpixel(bmap, point.x + 1, y)
+						== match_colour) {
 				point_temp.x = point.x + 1;
 				point_temp.y = y;
 				if (!stack_push(stack, &point_temp))  {
@@ -470,7 +490,9 @@ void draw_fill_scanline(const struct bitmap *bmap, uint32_t fill_colour,
 					goto abort;
 				}
 				right = 1;
-			} else if (right && point.x < bmap->w - 1 && bmap->data[point.x + 1 + y * bmap->w] != match_colour) {
+			} else if (right && point.x < bmap->w - 1
+							&& bitmap_getpixel(bmap, point.x + 1, y)
+							!= match_colour) {
 				right = 0;
 			}
 
@@ -547,7 +569,7 @@ void bitmap_to_pbmp(FILE *fpo, const struct bitmap *bmap)
 
 	for (row = 0; row < bmap->h; row++) {
 		for (col = 0; col < bmap->w; col++) {
-			uint32_t c = bmap->data[col + row * bmap->w];
+			uint32_t c = bitmap_getpixel(bmap, col, row);
 			fprintf(fpo, "%-3u %-3u %-3u    ", c >> 16, (c >> 8) & 0xff, c & 0xff);
 		}
 		fprintf(fpo, "\n");
