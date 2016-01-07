@@ -577,8 +577,6 @@ void draw_fill_scanline(const struct bitmap *bmap, uint32_t fill_colour,
 		}
 	}
 
-	fprintf(stderr, "Floodfill iterations %lu\n", i);
-
 abort:
 	stack_destroy(stack);
 }
