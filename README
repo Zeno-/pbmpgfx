@@ -1,0 +1,45 @@
+Usage
+=====
+
+Reads from stdin and outputs PPM
+
+PPM format: See https://en.wikipedia.org/wiki/Netpbm_format#PPM_example
+
+Example: progname < input > output
+
+Using ImageMagick to convert PPM to PNG: convert file.ppm file.png
+
+
+Input file format
+=================
+
+width height
+command
+.
+.
+
+
+
+
+Commands
+=========
+
+point     r g b row col
+line      r g b row0 col0 row1 col1
+bline     r g b row0 col0 row1 col1
+rect      r g b row col w h
+circle    r g b centre_row centre_col radius
+ellipse   r g b centre_row centre_col radius_vert radius_horiz
+fill      r g b row col
+smartfill r g b row col tolerance
+
+
+Notes:
+======
+
+rect:      solid rectangle
+
+smartfill: flood fill similar colors starting at the given point, filling
+           pixels as long as the gradient distance
+           (sqrt( (r2-r1)^2 + (g2-g1)^2 + (b2-b1)^2)) is less than the
+           tolerance
