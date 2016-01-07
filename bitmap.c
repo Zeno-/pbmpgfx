@@ -15,7 +15,7 @@ struct bitmap {
 };
 
 enum cmd_id {
-	CMD_POINT, CMD_LINE, CMD_RECT, CMD_CIRCLE, CMD_FILL
+	CMD_POINT, CMD_LINE, CMD_RECT, CMD_CIRCLE, CMD_ELLIPSE, CMD_FILL
 };
 
 struct cmd_def {
@@ -45,6 +45,7 @@ int parse_cmd_point(const char *s, struct bitmap *bmap);
 int parse_cmd_line(const char *s, struct bitmap *bmap);
 int parse_cmd_rect(const char *s, struct bitmap *bmap);
 int parse_cmd_circle(const char *s, struct bitmap *bmap);
+int parse_cmd_ellipse(const char *s, struct bitmap *bmap);
 int parse_cmd_fill(const char *s, struct bitmap *bmap);
 
 uint32_t fromRGB(const struct rgb255 *c);
@@ -69,6 +70,9 @@ void draw_rect(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p1, const struct point2d *p2);
 void draw_circle(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *center, unsigned radius);
+void draw_ellipse(const struct bitmap *bmap, const struct rgb255 *c,
+		const struct point2d *center,
+		unsigned radius1, unsigned radius2);
 void draw_fill(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p);
 void draw_fill_scanline(const struct bitmap *bmap, uint32_t fill_colour,
@@ -98,11 +102,12 @@ int main(void)
 int parse_file(FILE *fpi, FILE *fpo)
 {
 	static const struct cmd_def cmdlist[] = {
-		{ "point",  CMD_POINT,  parse_cmd_point   },
-		{ "line",   CMD_LINE,   parse_cmd_line    },
-		{ "rect",   CMD_RECT,   parse_cmd_rect    },
-		{ "circle", CMD_CIRCLE, parse_cmd_circle  },
-		{ "fill",   CMD_FILL,   parse_cmd_fill    }
+		{ "point",   CMD_POINT,  parse_cmd_point   },
+		{ "line",    CMD_LINE,   parse_cmd_line    },
+		{ "rect",    CMD_RECT,   parse_cmd_rect    },
+		{ "circle",  CMD_CIRCLE, parse_cmd_circle  },
+		{ "ellipse", CMD_CIRCLE, parse_cmd_ellipse },
+		{ "fill",    CMD_FILL,   parse_cmd_fill    }
 	};
 	const size_t n_cmds = sizeof cmdlist / sizeof *cmdlist;
 
@@ -203,6 +208,20 @@ int parse_cmd_circle(const char *s, struct bitmap *bmap)
 	if (sscanf(s, "%u %u %u %u %u %u", &c.r, &c.g, &c.b,
 		                               &point.y, &point.x, &r) == 6) {
 		draw_circle(bmap, &c, &point, r);
+		return 0;
+	}
+	return 1;
+}
+
+int parse_cmd_ellipse(const char *s, struct bitmap *bmap)
+{
+	struct rgb255 c;
+	struct point2d point;
+	unsigned r1, r2;
+
+	if (sscanf(s, "%u %u %u %u %u %u %u", &c.r, &c.g, &c.b,
+		                               &point.y, &point.x, &r1, &r2) == 7) {
+		draw_ellipse(bmap, &c, &point, r1, r2);
 		return 0;
 	}
 	return 1;
@@ -413,6 +432,46 @@ void draw_circle(const struct bitmap *bmap, const struct rgb255 *c,
     }
 }
 
+void draw_ellipse(const struct bitmap *bmap, const struct rgb255 *c,
+		const struct point2d *center,
+		unsigned radius1, unsigned radius2)
+{
+	/* Adapted from Alois Zingl (2012) "A Rasterizing Algorithm for
+	 * Drawing Curves"
+	 */
+	long long x, y, e2, dx, dy, err;
+
+	x = 0 - (long long)radius1;
+	y = 0;
+	e2 = radius2;
+	dx = (2 * x + 1) * e2 * e2;
+	dy = x * x;
+	err = dx + dy;
+
+	do {
+		draw_point_xy(bmap, c, center->x - x, center->y + y);
+		draw_point_xy(bmap, c, center->x + x, center->y + y);
+		draw_point_xy(bmap, c, center->x + x, center->y - y);
+		draw_point_xy(bmap, c, center->x - x, center->y - y);
+
+		e2 = 2 * err;
+		if (e2 >= dx) {
+			x++;
+			err += dx += 2 * (long long)radius2 * radius2;
+		}
+		if (e2 <= dy) {
+			y++;
+			err += dy += 2 * (long long)radius1 * radius1;
+		}
+	} while (x <= 0);
+
+	while (y++ < radius2) {
+		draw_point_xy(bmap, c, center->x, center->y + y);
+		draw_point_xy(bmap, c, center->x, center->y - y);
+	}
+}
+
+
 void draw_fill(const struct bitmap *bmap, const struct rgb255 *c,
 		const struct point2d *p)
 {
@@ -499,6 +558,8 @@ void draw_fill_scanline(const struct bitmap *bmap, uint32_t fill_colour,
 			y++;
 		}
 	}
+
+	fprintf(stderr, "Floodfill iterations %lu\n", i);
 
 abort:
 	stack_destroy(stack);
