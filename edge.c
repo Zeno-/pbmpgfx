@@ -40,7 +40,6 @@ int main(void)
 {
 	struct bitmap *bmap, *edges;
 
-	// FIXME: mostly just testing
 	if ((bmap = bitmap_load_ppm(stdin))) {
 
 		if ((edges = bitmap_edge_sobel(bmap))) {
@@ -100,74 +99,85 @@ struct bitmap *bitmap_clone(const struct bitmap *bmap)
 	return bmap_new;
 }
 
-/* param gethoriz: 0 = sample vertically, 1 = sample horizontally */
-static void get_sobel_samples(const struct bitmap *bmap, int x, int y,
-		uint32_t samples[6], int gethoriz)
+/* Stores a 3x3 region with x,y at the center in 'dest'
+ * The 24-bit RGB values are converted to greyscale (0-255).
+ */
+static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
+		int dest[9])
 {
-	/* x, y offsets (sample locations) for horizontal calc */
-	static const struct point2d sample_offsets_h[6] = {
-		{  1, -1}, {  1,  0 }, {  1, 1 },
-		{ -1, -1}, { -1,  0 }, { -1, 1 }
-	};
-	/* x, y offsets (sample locations) for vertical calc */
-	static const struct point2d sample_offsets_v[6] = {
-		{ -1,  1}, {  0,  1 }, {  1,  1 },
-		{ -1, -1}, {  0, -1 }, {  1, -1 }
-	};
+	int dx, dy, x2, y2;
+	int idx;
 
-	int x2, y2, si, brightness;
-	const struct point2d *M;
-
-	M = gethoriz ? sample_offsets_h : sample_offsets_v;
-
-	for (si = 0; si < 6; si++) {
-		x2 = x + M[si].x;
-		y2 = y + M[si].y;
-		if (x2 > 0 && x2 < bmap->w && y2 > 0 && y2 < bmap->h) {
-			struct rgb255 rgb;
-			toRGB(bitmap_getpixel(bmap, x2, y2), &rgb);
-			//brightness = (rgb.r + rgb.g + rgb.b) / 3;
-			brightness = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
-			//brightness = bitmap_getpixel(bmap, x2, y2) & 0xff;
-			samples[si] = brightness;
+	idx = 0;
+	for (dx = -1; dx <= 1; dx++) {
+		for (dy = -1; dy <= 1; dy++) {
+			x2 = x + dx;
+			y2 = y + dx;
+			if (x2 < 0 || x2 >= bmap->w || y2 < 0 || y2 >= bmap->w) {
+				dest[idx] = 0;
+			} else {
+				struct rgb255 rgb;
+				int gsv;
+				toRGB(bitmap_getpixel(bmap, x2, y2), &rgb);
+				gsv = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+				dest[idx++] = gsv;
+			}
 		}
-		else
-			samples[si] = 0;
 	}
+}
+
+/* If 'horiz' == 0 get horizontal gradient, otherwise vertical */
+static int sobel_getgradient(const int region[9], int x, int y, int horiz)
+{
+	static const int sobel_Gx[9] = {
+		-1,  0,  1,
+		-2,  0,  2,
+		-1,  0,  1
+	};
+	static const int sobel_Gy[9] = {
+		-1, -2, -1,
+		0,  0,  0,
+		1,  2,  1
+	};
+
+	const int *K;
+	int i;
+	int gradient = 0;
+
+	K = horiz ? sobel_Gx : sobel_Gy;
+	for (i = 0; i < 9; i++)
+		gradient += region[i] * K[i];
+
+	return gradient;
 }
 
 struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
 {
-	uint32_t samples[6];
+	int region[9];
 
 	struct bitmap *bmap_edges;
 
 	int x, y;
-	double eh, ev;
-	double c;
+	double gradient_x, gradient_y;
 
 	if (!(bmap_edges = bitmap_new(bmap->w, bmap->h))) {
 		fputs("ERROR: (sobel) Could not alloc memory for edge image\n", stderr);
 		return NULL;
 	}
 
-	for (x = 2; x < bmap->w - 2; x++) {
-		for (y = 2; y < bmap->h - 2; y++) {
+	for (x = 1; x < bmap->w - 2; x++) {
+		for (y = 1; y < bmap->h - 2; y++) {
 			struct rgb255 rgb;
+			int c;
 
-			get_sobel_samples(bmap, x, y, samples, 1);
-			eh = (samples[0] + 2 * samples[1] + samples[2])
-					- (samples[3] + 2 * samples[4] + samples[5]);
-			get_sobel_samples(bmap, x, y, samples, 0);
-			ev = (samples[0] + 2 * samples[1] + samples[2])
-					- (samples[3] + 2 * samples[4] + samples[5]);
-			c = sqrt((eh * eh) + (ev * ev));
+			sobel_get_3x3region(bmap, x, y, region);
+			gradient_x = sobel_getgradient(region, x, y, 1);
+			gradient_y = sobel_getgradient(region, x, y, 0);
 
-			while (c > 255)
-				c = log(c); //c = sqrt(c);//c = pow(c, 0.3);// c /= 64;
-			if (c < 32)
-				c = 0;
-			rgb.r = rgb.g = rgb.b = c;// & 0xff;
+			c = sqrt(gradient_x * gradient_x + gradient_y * gradient_y);
+			if (c > 255)
+				c = 255;
+			rgb.r = rgb.g = rgb.b = c;
 			bitmap_setpixel(bmap_edges, fromRGB(&rgb), x, y);
 		}
 	}
