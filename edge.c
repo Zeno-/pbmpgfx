@@ -14,18 +14,21 @@ struct rgb255 {
 	int r, g, b;
 };
 
+struct point2d {
+	int x, y;
+};
 
 uint32_t fromRGB(const struct rgb255 *c);
 void toRGB(uint32_t c, struct rgb255 *dest);
 
 struct bitmap *bitmap_new(int w, int h);
 void bitmap_destroy(struct bitmap *bmap);
-struct bitmap *bitmap_clone(struct bitmap *bmap);
+struct bitmap *bitmap_clone(const struct bitmap *bmap);
+struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap);
 void bitmap_togrey(struct bitmap *bmap);
 void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
 		int x, int y);
 uint32_t bitmap_getpixel(const struct bitmap *bmap, int x, int y);
-
 
 struct bitmap *bitmap_load_ppm(FILE *fp);
 void bitmap_save_ppm(FILE *fpo, const struct bitmap *bmap);
@@ -35,19 +38,17 @@ const char *skip_leading_spaces(const char *s);
 
 int main(void)
 {
-	struct bitmap *bmap, *copy;
+	struct bitmap *bmap, *edges;
 
 	// FIXME: mostly just testing
 	if ((bmap = bitmap_load_ppm(stdin))) {
-		if (!(copy = bitmap_clone(bmap))) {
-			fprintf(stderr, "ERROR: Could not clone image\n");
-			return 0;
+
+		if ((edges = bitmap_edge_sobel(bmap))) {
+			bitmap_save_ppm(stdout, edges);
+
+			bitmap_destroy(edges);
 		}
 
-		bitmap_togrey(copy);
-		bitmap_save_ppm(stdout, copy);
-
-		bitmap_destroy(copy);
 		bitmap_destroy(bmap);
 
 		return 1;
@@ -87,7 +88,7 @@ void bitmap_destroy(struct bitmap *bmap)
 	free(bmap);
 }
 
-struct bitmap *bitmap_clone(struct bitmap *bmap)
+struct bitmap *bitmap_clone(const struct bitmap *bmap)
 {
 	struct bitmap *bmap_new;
 
@@ -97,6 +98,81 @@ struct bitmap *bitmap_clone(struct bitmap *bmap)
 	memcpy(bmap_new->data, bmap->data, bmap->w * bmap->h * sizeof *bmap->data);
 
 	return bmap_new;
+}
+
+/* param gethoriz: 0 = sample vertically, 1 = sample horizontally */
+static void get_sobel_samples(const struct bitmap *bmap, int x, int y,
+		uint32_t samples[6], int gethoriz)
+{
+	/* x, y offsets (sample locations) for horizontal calc */
+	static const struct point2d sample_offsets_h[6] = {
+		{  1, -1}, {  1,  0 }, {  1, 1 },
+		{ -1, -1}, { -1,  0 }, { -1, 1 }
+	};
+	/* x, y offsets (sample locations) for vertical calc */
+	static const struct point2d sample_offsets_v[6] = {
+		{ -1,  1}, {  0,  1 }, {  1,  1 },
+		{ -1, -1}, {  0, -1 }, {  1, -1 }
+	};
+
+	int x2, y2, si, brightness;
+	const struct point2d *M;
+
+	M = gethoriz ? sample_offsets_h : sample_offsets_v;
+
+	for (si = 0; si < 6; si++) {
+		x2 = x + M[si].x;
+		y2 = y + M[si].y;
+		if (x2 > 0 && x2 < bmap->w && y2 > 0 && y2 < bmap->h) {
+			struct rgb255 rgb;
+			toRGB(bitmap_getpixel(bmap, x2, y2), &rgb);
+			//brightness = (rgb.r + rgb.g + rgb.b) / 3;
+			brightness = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+			//brightness = bitmap_getpixel(bmap, x2, y2) & 0xff;
+			samples[si] = brightness;
+		}
+		else
+			samples[si] = 0;
+	}
+}
+
+struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
+{
+	uint32_t samples[6];
+
+	struct bitmap *bmap_edges;
+
+	int x, y;
+	double eh, ev;
+	double c;
+
+	if (!(bmap_edges = bitmap_new(bmap->w, bmap->h))) {
+		fputs("ERROR: (sobel) Could not alloc memory for edge image\n", stderr);
+		return NULL;
+	}
+
+	for (x = 2; x < bmap->w - 2; x++) {
+		for (y = 2; y < bmap->h - 2; y++) {
+			struct rgb255 rgb;
+
+			get_sobel_samples(bmap, x, y, samples, 1);
+			eh = (samples[0] + 2 * samples[1] + samples[2])
+					- (samples[3] + 2 * samples[4] + samples[5]);
+			get_sobel_samples(bmap, x, y, samples, 0);
+			ev = (samples[0] + 2 * samples[1] + samples[2])
+					- (samples[3] + 2 * samples[4] + samples[5]);
+			c = sqrt((eh * eh) + (ev * ev));
+
+			while (c > 255)
+				c = log(c); //c = sqrt(c);//c = pow(c, 0.3);// c /= 64;
+			if (c < 32)
+				c = 0;
+			rgb.r = rgb.g = rgb.b = c;// & 0xff;
+			bitmap_setpixel(bmap_edges, fromRGB(&rgb), x, y);
+		}
+	}
+	return bmap_edges;
+
 }
 
 void bitmap_togrey(struct bitmap *bmap)
