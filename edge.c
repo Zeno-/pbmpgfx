@@ -5,6 +5,8 @@
 #include <ctype.h>
 #include <math.h>
 
+#define GAMMA 2.2
+
 struct bitmap {
 	int w, h;
 	uint32_t *data;
@@ -23,6 +25,7 @@ uint32_t fromRGB_components(uint8_t r, uint8_t g, uint8_t b);
 void toRGB(uint32_t c, struct rgb255 *dest);
 uint32_t toGrey(uint32_t c);
 uint8_t toGrey_8(uint32_t c);
+uint8_t toGrey_8_gamma(uint32_t c, double gamma);
 
 
 struct bitmap *bitmap_new(int w, int h);
@@ -30,6 +33,7 @@ void bitmap_destroy(struct bitmap *bmap);
 struct bitmap *bitmap_clone(const struct bitmap *bmap);
 struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap);
 void bitmap_togrey(struct bitmap *bmap);
+void bitmap_togrey_gamma(struct bitmap *bmap, double gamma);
 void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
 		int x, int y);
 uint32_t bitmap_getpixel(const struct bitmap *bmap, int x, int y);
@@ -45,11 +49,18 @@ int main(void)
 	struct bitmap *bmap, *edges;
 
 	if ((bmap = bitmap_load_ppm(stdin))) {
+		//bitmap_togrey_gamma(bmap, GAMMA);
 		bitmap_togrey(bmap);
+
+#if 0
+		bitmap_save_ppm(stdout, bmap);
+#else
 		if ((edges = bitmap_edge_sobel(bmap))) {
 			bitmap_save_ppm(stdout, edges);
 			bitmap_destroy(edges);
 		}
+#endif
+
 		bitmap_destroy(bmap);
 
 		return 1;
@@ -197,6 +208,20 @@ void bitmap_togrey(struct bitmap *bmap)
 	}
 }
 
+void bitmap_togrey_gamma(struct bitmap *bmap, double gamma)
+{
+	int x, y;
+	uint8_t gsv;
+
+	for (x = 0; x < bmap->w; x++) {
+		for (y = 0; y < bmap->h; y++) {
+			gsv = toGrey_8_gamma(bitmap_getpixel(bmap, x, y), gamma);
+			bitmap_setpixel(bmap, fromRGB_components(gsv, gsv, gsv), x, y);
+		}
+	}
+}
+
+
 struct bitmap *bitmap_load_ppm(FILE *fp)
 {
 	char buff[8192];
@@ -305,6 +330,21 @@ uint8_t toGrey_8(uint32_t c)
 		gsv = 255;
 
 	return gsv;
+}
+
+uint8_t toGrey_8_gamma(uint32_t c, double gamma)
+{
+	double gsv;
+	struct rgb255 rgb;
+
+	toRGB(c, &rgb);
+	/* http://entropymine.com/imageworsener/grayscale/ */
+
+	gsv = pow(0.2126 * rgb.r, gamma)
+			+ pow(0.7152 * rgb.g, gamma)
+			+ pow(0.0722 * rgb.b, gamma);
+
+	return pow(gsv, 1/gamma);
 }
 
 void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
