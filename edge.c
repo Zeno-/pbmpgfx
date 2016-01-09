@@ -45,6 +45,7 @@ int main(void)
 	struct bitmap *bmap, *edges;
 
 	if ((bmap = bitmap_load_ppm(stdin))) {
+		bitmap_togrey(bmap);
 		if ((edges = bitmap_edge_sobel(bmap))) {
 			bitmap_save_ppm(stdout, edges);
 			bitmap_destroy(edges);
