@@ -44,6 +44,17 @@ void bitmap_save_ppm(FILE *fpo, const struct bitmap *bmap);
 char *get_line(FILE *fp, char *buff, size_t sz, size_t *linenum);
 const char *skip_leading_spaces(const char *s);
 
+/***************************************************************************
+ * "Private" functions
+ ***************************************************************************/
+
+static int sobel_getgradient(const int region[9], int horiz);
+static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
+		int dest[9]);
+
+
+/***************************************************************************/
+
 int main(void)
 {
 	struct bitmap *bmap, *edges;
@@ -110,55 +121,6 @@ struct bitmap *bitmap_clone(const struct bitmap *bmap)
 	memcpy(bmap_new->data, bmap->data, bmap->w * bmap->h * sizeof *bmap->data);
 
 	return bmap_new;
-}
-
-/* Stores a 3x3 region with x,y at the center in 'dest'
- * The 24-bit RGB values are converted to greyscale (0-255).
- */
-static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
-		int dest[9])
-{
-	int dx, dy, x2, y2;
-	int idx;
-
-	idx = 0;
-	for (dx = -1; dx <= 1; dx++) {
-		for (dy = -1; dy <= 1; dy++) {
-			x2 = x + dx;
-			y2 = y + dx;
-			if (x2 < 0 || x2 >= bmap->w || y2 < 0 || y2 >= bmap->w) {
-				dest[idx] = 0;
-			} else {
-				uint8_t gsv = toGrey_8(bitmap_getpixel(bmap, x2, y2));
-				dest[idx++] = gsv;
-			}
-		}
-	}
-}
-
-/* If 'horiz' == 0 get horizontal gradient, otherwise vertical */
-static int sobel_getgradient(const int region[9], int horiz)
-{
-	static const int sobel_Gx[9] = {
-		-1,  0,  1,
-		-2,  0,  2,
-		-1,  0,  1
-	};
-	static const int sobel_Gy[9] = {
-		-1, -2, -1,
-		0,  0,  0,
-		1,  2,  1
-	};
-
-	const int *K;
-	int i;
-	int gradient = 0;
-
-	K = horiz ? sobel_Gx : sobel_Gy;
-	for (i = 0; i < 9; i++)
-		gradient += region[i] * K[i];
-
-	return gradient;
 }
 
 struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
@@ -388,4 +350,57 @@ const char *skip_leading_spaces(const char *s)
 	while (isspace(*s))
 		s++;
 	return s;
+}
+
+/***************************************************************************
+ * Sobel helper functions
+ ***************************************************************************/
+
+/* If 'horiz' == 0 get horizontal gradient, otherwise vertical */
+static int sobel_getgradient(const int region[9], int horiz)
+{
+	static const int sobel_Gx[9] = {
+		-1,  0,  1,
+		-2,  0,  2,
+		-1,  0,  1
+	};
+	static const int sobel_Gy[9] = {
+		-1, -2, -1,
+		0,  0,  0,
+		1,  2,  1
+	};
+
+	const int *K;
+	int i;
+	int gradient = 0;
+
+	K = horiz ? sobel_Gx : sobel_Gy;
+	for (i = 0; i < 9; i++)
+		gradient += region[i] * K[i];
+
+	return gradient;
+}
+
+/* Stores a 3x3 region with x,y at the center in 'dest'
+ * The 24-bit RGB values are converted to greyscale (0-255).
+ */
+static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
+		int dest[9])
+{
+	int dx, dy, x2, y2;
+	int idx;
+
+	idx = 0;
+	for (dx = -1; dx <= 1; dx++) {
+		for (dy = -1; dy <= 1; dy++) {
+			x2 = x + dx;
+			y2 = y + dx;
+			if (x2 < 0 || x2 >= bmap->w || y2 < 0 || y2 >= bmap->w) {
+				dest[idx] = 0;
+			} else {
+				uint8_t gsv = toGrey_8(bitmap_getpixel(bmap, x2, y2));
+				dest[idx++] = gsv;
+			}
+		}
+	}
 }
