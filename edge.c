@@ -19,7 +19,11 @@ struct point2d {
 };
 
 uint32_t fromRGB(const struct rgb255 *c);
+uint32_t fromRGB_components(uint8_t r, uint8_t g, uint8_t b);
 void toRGB(uint32_t c, struct rgb255 *dest);
+uint32_t toGrey(uint32_t c);
+uint8_t toGrey_8(uint32_t c);
+
 
 struct bitmap *bitmap_new(int w, int h);
 void bitmap_destroy(struct bitmap *bmap);
@@ -41,13 +45,10 @@ int main(void)
 	struct bitmap *bmap, *edges;
 
 	if ((bmap = bitmap_load_ppm(stdin))) {
-
 		if ((edges = bitmap_edge_sobel(bmap))) {
 			bitmap_save_ppm(stdout, edges);
-
 			bitmap_destroy(edges);
 		}
-
 		bitmap_destroy(bmap);
 
 		return 1;
@@ -116,10 +117,7 @@ static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
 			if (x2 < 0 || x2 >= bmap->w || y2 < 0 || y2 >= bmap->w) {
 				dest[idx] = 0;
 			} else {
-				struct rgb255 rgb;
-				int gsv;
-				toRGB(bitmap_getpixel(bmap, x2, y2), &rgb);
-				gsv = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+				uint8_t gsv = toGrey_8(bitmap_getpixel(bmap, x2, y2));
 				dest[idx++] = gsv;
 			}
 		}
@@ -127,7 +125,7 @@ static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
 }
 
 /* If 'horiz' == 0 get horizontal gradient, otherwise vertical */
-static int sobel_getgradient(const int region[9], int x, int y, int horiz)
+static int sobel_getgradient(const int region[9], int horiz)
 {
 	static const int sobel_Gx[9] = {
 		-1,  0,  1,
@@ -171,8 +169,8 @@ struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
 			int c;
 
 			sobel_get_3x3region(bmap, x, y, region);
-			gradient_x = sobel_getgradient(region, x, y, 1);
-			gradient_y = sobel_getgradient(region, x, y, 0);
+			gradient_x = sobel_getgradient(region, 1);
+			gradient_y = sobel_getgradient(region, 0);
 
 			c = sqrt(gradient_x * gradient_x + gradient_y * gradient_y);
 			if (c > 255)
@@ -188,20 +186,12 @@ struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
 void bitmap_togrey(struct bitmap *bmap)
 {
 	int x, y;
-	double gsv;
+	uint8_t gsv;
 
 	for (x = 0; x < bmap->w; x++) {
 		for (y = 0; y < bmap->h; y++) {
-			struct rgb255 rgb;
-			uint32_t c = bitmap_getpixel(bmap, x, y);
-			toRGB(c, &rgb);
-			/* https://en.wikipedia.org/wiki/Grayscale#Colorimetric_.28luminance-preserving.29_conversion_to_grayscale */
-			gsv = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
-			//gsv = round(gsv);
-			if (gsv > 255.0) /* paranoia */
-				gsv = 255.0;
-			rgb.r = gsv = rgb.g = rgb.b = gsv;
-			bitmap_setpixel(bmap, fromRGB(&rgb), x, y);
+			gsv = toGrey_8(bitmap_getpixel(bmap, x, y));
+			bitmap_setpixel(bmap, fromRGB_components(gsv, gsv, gsv), x, y);
 		}
 	}
 }
@@ -275,10 +265,7 @@ void bitmap_save_ppm(FILE *fpo, const struct bitmap *bmap)
 
 uint32_t fromRGB(const struct rgb255 *c)
 {
-	return
-		((uint32_t)(c->r & 0xff)) << 16 |
-		((uint32_t)(c->g & 0xff)) << 8 |
-		((uint32_t)(c->b & 0xff));
+	return fromRGB_components(c->r, c->g, c->b);
 }
 
 void toRGB(uint32_t c, struct rgb255 *dest)
@@ -286,6 +273,37 @@ void toRGB(uint32_t c, struct rgb255 *dest)
 	dest->r = (c >> 16) & 0xff;
 	dest->g = (c >> 8) & 0xff;
 	dest->b = c & 0xff;
+}
+
+uint32_t fromRGB_components(uint8_t r, uint8_t g, uint8_t b)
+{
+	return
+		((uint32_t)(r & 0xff)) << 16 |
+		((uint32_t)(g & 0xff)) << 8 |
+		((uint32_t)(b & 0xff));
+}
+
+uint32_t toGrey(uint32_t c)
+{
+	uint8_t gsv;
+
+	gsv = toGrey_8(c);
+
+	return fromRGB_components(gsv, gsv, gsv);
+}
+
+uint8_t toGrey_8(uint32_t c)
+{
+	double gsv;
+	struct rgb255 rgb;
+
+	toRGB(c, &rgb);
+	/* https://en.wikipedia.org/wiki/Grayscale */
+	gsv = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+	if (gsv > 255)	/* paranoia */
+		gsv = 255;
+
+	return gsv;
 }
 
 void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
@@ -310,6 +328,9 @@ char *get_line(FILE *fp, char *buff, size_t sz, size_t *linenum)
 	do {
 		if (!fgets(buff, sz, fp))
 			return NULL;
+
+		if (linenum)
+			++*linenum;
 
 		s = skip_leading_spaces(buff);
 		if (*s == '\0' || *s == '#')
