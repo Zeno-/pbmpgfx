@@ -65,9 +65,11 @@ int main(void)
 		bitmap_togrey(bmap);
 
 #if 0
+		bitmap_gaussblur(bmap, 1);
 		bitmap_save_ppm(stdout, bmap);
 #else
 		if ((edges = bitmap_edge_sobel(bmap))) {
+			bitmap_gaussblur(bmap, 1);
 			bitmap_save_ppm(stdout, edges);
 			bitmap_destroy(edges);
 		}
@@ -172,21 +174,43 @@ struct bitmap *bitmap_gaussblur(struct bitmap *bmap, int replace)
 		4,  9, 12,  9, 4,
 		2,  4,  5,  4, 2
 	};
+	static const int divisor = 159;
 
-	struct bitmap *copy;
+	int x, y;
+	size_t i;
+	uint32_t region[5*5];
 
-	if (!(copy = bitmap_clone(bmap)))
+	struct bitmap *dest;
+
+	if (!(dest = bitmap_new(bmap->w, bmap->h)))
 		return NULL;
 
-	//FIXME: Not implemented
+	for (y = 0; y < bmap->h; y++) {
+		for (x = 0; x < bmap->w; x++) {
+			double v = 0;
+			struct rgb255 rgb;
+
+			bitmap_getregion(bmap, x, y, 5, 5, 0xff, region);
+			for (i = 0; i < sizeof K / sizeof *K; i++) {
+				v += K[i] * region[i];
+			}
+			v /= divisor;
+
+			rgb.r = rgb.g = rgb.b = v;
+
+			bitmap_setpixel(dest, fromRGB(&rgb), x, y);
+		}
+	}
+
+	fprintf(stderr, "replace is %d\n", replace);
 
 	if (replace) {
-		memcpy(bmap->data, copy->data, sizeof *bmap->data * bmap->w * bmap->h);
-		free(copy);
+		memcpy(bmap->data, dest->data, sizeof *bmap->data * bmap->w * bmap->h);
+		bitmap_destroy(dest);
 		return bmap;
 	}
 
-	return copy;
+	return dest;
 }
 
 void bitmap_togrey(struct bitmap *bmap)
