@@ -32,8 +32,12 @@ struct bitmap *bitmap_new(int w, int h);
 void bitmap_destroy(struct bitmap *bmap);
 struct bitmap *bitmap_clone(const struct bitmap *bmap);
 struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap);
+struct bitmap *bitmap_gaussblur(struct bitmap *bmap, int replace);
 void bitmap_togrey(struct bitmap *bmap);
 void bitmap_togrey_gamma(struct bitmap *bmap, double gamma);
+void bitmap_getregion(const struct bitmap *bmap,
+		int region_x, int region_y, int region_w, int region_h,
+		uint32_t colour_mask, uint32_t *dest);
 void bitmap_setpixel(const struct bitmap *bmap, uint32_t c,
 		int x, int y);
 uint32_t bitmap_getpixel(const struct bitmap *bmap, int x, int y);
@@ -48,10 +52,7 @@ const char *skip_leading_spaces(const char *s);
  * "Private" functions
  ***************************************************************************/
 
-static int sobel_getgradient(const int region[9], int horiz);
-static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
-		int dest[9]);
-
+static int sobel_getgradient(const uint32_t region[9], int horiz);
 
 /***************************************************************************/
 
@@ -125,7 +126,7 @@ struct bitmap *bitmap_clone(const struct bitmap *bmap)
 
 struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
 {
-	int region[9];
+	uint32_t region[9];
 
 	struct bitmap *bmap_edges;
 
@@ -137,12 +138,12 @@ struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
 		return NULL;
 	}
 
-	for (x = 1; x < bmap->w - 2; x++) {
-		for (y = 1; y < bmap->h - 2; y++) {
+	for (x = 1; x < bmap->w - 3; x++) {
+		for (y = 1; y < bmap->h - 3; y++) {
 			struct rgb255 rgb;
 			int c;
 
-			sobel_get_3x3region(bmap, x, y, region);
+			bitmap_getregion(bmap, x-1, y-1, 3, 3, 0xff, region);
 			gradient_x = sobel_getgradient(region, 1);
 			gradient_y = sobel_getgradient(region, 0);
 
@@ -155,6 +156,37 @@ struct bitmap *bitmap_edge_sobel(const struct bitmap *bmap)
 	}
 	return bmap_edges;
 
+}
+
+/* if 'replace' != 0 then the values of 'bmap' are replaced with the result,
+ * otherwise 'bmap' is not changed and a version of the blurred bmap is
+ * returned; if replace == 0 then the caller is responsible for deallocating
+ * resources.
+ */
+struct bitmap *bitmap_gaussblur(struct bitmap *bmap, int replace)
+{
+	static const int K[5*5] = { /* The guassian convolution matrix */
+		2,  4,  5,  4, 2,
+		4,  9, 12,  9, 4,
+		5, 12, 15, 12, 5,
+		4,  9, 12,  9, 4,
+		2,  4,  5,  4, 2
+	};
+
+	struct bitmap *copy;
+
+	if (!(copy = bitmap_clone(bmap)))
+		return NULL;
+
+	//FIXME: Not implemented
+
+	if (replace) {
+		memcpy(bmap->data, copy->data, sizeof *bmap->data * bmap->w * bmap->h);
+		free(copy);
+		return bmap;
+	}
+
+	return copy;
 }
 
 void bitmap_togrey(struct bitmap *bmap)
@@ -183,6 +215,34 @@ void bitmap_togrey_gamma(struct bitmap *bmap, double gamma)
 	}
 }
 
+/* Out-of-bounds pixels are set to 0. FIXME: Implement a better way/option
+ *
+ * 'region_x' and 'region_y' are the top-left coordinates of the region to
+ * extract.
+ *
+ * Before the source pixel colours (from 'bmap') are stored in 'dest', they
+ * are bitwise-ANDed with 'colour_mask'.
+ */
+void bitmap_getregion(const struct bitmap *bmap,
+		int region_x, int region_y, int region_w, int region_h,
+		uint32_t colour_mask, uint32_t *dest)
+{
+	int i, x, y, sx, sy;
+
+	for (i = y = 0; y < region_h; y++) {
+		for (x = 0; x < region_w; x++) {
+			sx = region_x + x;
+			sy = region_y + y;
+			if (sx >= 0 && sx < bmap->w && sy >=0 && sy < bmap->h) {
+				dest[i] = bitmap_getpixel(bmap, sx, sy) & colour_mask;
+			} else {
+				dest[i] = 0;
+			}
+			i++;
+		}
+	}
+
+}
 
 struct bitmap *bitmap_load_ppm(FILE *fp)
 {
@@ -357,7 +417,7 @@ const char *skip_leading_spaces(const char *s)
  ***************************************************************************/
 
 /* If 'horiz' == 0 get horizontal gradient, otherwise vertical */
-static int sobel_getgradient(const int region[9], int horiz)
+static int sobel_getgradient(const uint32_t region[9], int horiz)
 {
 	static const int sobel_Gx[9] = {
 		-1,  0,  1,
@@ -379,28 +439,4 @@ static int sobel_getgradient(const int region[9], int horiz)
 		gradient += region[i] * K[i];
 
 	return gradient;
-}
-
-/* Stores a 3x3 region with x,y at the center in 'dest'
- * The 24-bit RGB values are converted to greyscale (0-255).
- */
-static void sobel_get_3x3region(const struct bitmap *bmap, int x, int y,
-		int dest[9])
-{
-	int dx, dy, x2, y2;
-	int idx;
-
-	idx = 0;
-	for (dx = -1; dx <= 1; dx++) {
-		for (dy = -1; dy <= 1; dy++) {
-			x2 = x + dx;
-			y2 = y + dx;
-			if (x2 < 0 || x2 >= bmap->w || y2 < 0 || y2 >= bmap->w) {
-				dest[idx] = 0;
-			} else {
-				uint8_t gsv = toGrey_8(bitmap_getpixel(bmap, x2, y2));
-				dest[idx++] = gsv;
-			}
-		}
-	}
 }
