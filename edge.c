@@ -68,8 +68,8 @@ int main(void)
 		bitmap_gaussblur(bmap, 1);
 		bitmap_save_ppm(stdout, bmap);
 #else
+		bitmap_gaussblur(bmap, 1);
 		if ((edges = bitmap_edge_sobel(bmap))) {
-			bitmap_gaussblur(bmap, 1);
 			bitmap_save_ppm(stdout, edges);
 			bitmap_destroy(edges);
 		}
